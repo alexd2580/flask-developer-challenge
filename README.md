@@ -33,3 +33,9 @@ docker run -p 8000:8000 flask-app
 # Via docker-compose
 docker-compose up
 ```
+
+# Running test
+
+```bash
+python -m pytest
+```

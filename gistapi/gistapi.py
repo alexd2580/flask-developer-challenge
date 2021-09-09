@@ -13,10 +13,12 @@ import re
 from typing import Tuple
 import requests
 from flask import Flask, jsonify, request
-
+import requests_cache
 
 # *The* app object
 app = Flask(__name__)
+
+requests_cache.install_cache(cache_name='gist_app_cache', expire_after=300)
 
 
 @app.route("/ping")
@@ -41,6 +43,8 @@ def gists_for_user(username) -> Tuple[bool, str, dict]:
     """
     gists_url = 'https://api.github.com/users/{username}/gists'.format(
         username=username)
+    # we might want to disable cache for this request
+    # with requests_cache.disabled():
     response = requests.get(gists_url)
     # BONUS: What failures could happen?
     # BONUS: Paging? How does this work for users with tons of gists?
@@ -80,7 +84,7 @@ def search():
         if is_successful:
             match_list = []
             regex_pattern = re.compile(pattern, re.MULTILINE | re.IGNORECASE)
-            for gist in data:
+            for gist in set(data):
                 # REQUIRED: Fetch each gist and check for the pattern
                 # BONUS: What about huge gists?
                 # BONUS: Can we cache results in a datastore/db?
