@@ -9,12 +9,16 @@ endpoint to verify the server is up and responding and a search endpoint
 providing a search across all public Gists for a given Github account.
 """
 
+import re
+from typing import Tuple
 import requests
 from flask import Flask, jsonify, request
-
+import requests_cache
 
 # *The* app object
 app = Flask(__name__)
+
+requests_cache.install_cache(cache_name='gist_app_cache', expire_after=300)
 
 
 @app.route("/ping")
@@ -23,7 +27,7 @@ def ping():
     return "pong"
 
 
-def gists_for_user(username):
+def gists_for_user(username) -> Tuple[bool, str, dict]:
     """Provides the list of gist metadata for a given user.
 
     This abstracts the /users/:username/gist endpoint from the Github API.
@@ -38,12 +42,16 @@ def gists_for_user(username):
         the above URL for details of the expected structure.
     """
     gists_url = 'https://api.github.com/users/{username}/gists'.format(
-            username=username)
+        username=username)
+    # we might want to disable cache for this request
+    # with requests_cache.disabled():
     response = requests.get(gists_url)
     # BONUS: What failures could happen?
     # BONUS: Paging? How does this work for users with tons of gists?
-
-    return response.json()
+    json_data = response.json()
+    if response.status_code == 200:
+        return True, "Successful", json_data
+    return False, json_data['message'], json_data
 
 
 @app.route("/api/v1/search", methods=['POST'])
@@ -59,27 +67,51 @@ def search():
         indicating any failure conditions.
     """
     post_data = request.get_json()
-    # BONUS: Validate the arguments?
+    if post_data:
+        # BONUS: Validate the arguments?
+        if 'username' not in post_data:
+            return jsonify({'status': 'failed', 'message': 'username is required'})
 
-    username = post_data['username']
-    pattern = post_data['pattern']
+        if 'pattern' not in post_data:
+            return jsonify({'status': 'failed', 'message': 'pattern is required'})
 
-    result = {}
-    gists = gists_for_user(username)
-    # BONUS: Handle invalid users?
+        username = post_data['username']
+        pattern = post_data['pattern']
 
-    for gist in gists:
-        # REQUIRED: Fetch each gist and check for the pattern
-        # BONUS: What about huge gists?
-        # BONUS: Can we cache results in a datastore/db?
-        pass
+        result = {}
+        # BONUS: Handle invalid users?
+        is_successful, msg, data = gists_for_user(username)
+        if is_successful:
+            match_list = []
+            regex_pattern = re.compile(pattern, re.MULTILINE | re.IGNORECASE)
+            for gist in data:
+                # REQUIRED: Fetch each gist and check for the pattern
+                # BONUS: What about huge gists?
+                # BONUS: Can we cache results in a datastore/db?
+                # _, value = gist['files'].popitem()
+                value, = gist['files'].values()
+                raw_url = value['raw_url']
+                response = requests.get(raw_url)
+                if response.status_code == 200:
+                    matches = regex_pattern.findall(response.text)
+                    if len(matches) > 0:
+                        match_list.append(
+                            f"https://gist.github.com/{username}/{gist['id']}")
 
-    result['status'] = 'success'
-    result['username'] = username
-    result['pattern'] = pattern
-    result['matches'] = []
+            result['status'] = 'success'
+            result['username'] = username
+            result['pattern'] = pattern
+            result['matches'] = match_list
+        else:
+            result['status'] = 'failed'
+            result['message'] = msg
+            result['username'] = username
+            result['pattern'] = pattern
+            result['matches'] = []
 
-    return jsonify(result)
+        return jsonify(result)
+    else:
+        return jsonify({'status': 'failed', 'message': 'Invalid parameters'})
 
 
 if __name__ == '__main__':
