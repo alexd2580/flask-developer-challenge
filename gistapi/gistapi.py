@@ -84,7 +84,7 @@ def search():
         if is_successful:
             match_list = []
             regex_pattern = re.compile(pattern, re.MULTILINE | re.IGNORECASE)
-            for gist in set(data):
+            for gist in data:
                 # REQUIRED: Fetch each gist and check for the pattern
                 # BONUS: What about huge gists?
                 # BONUS: Can we cache results in a datastore/db?
